@@ -1,7 +1,11 @@
-from agentic_chatbot_backend import chatbot, get_all_threads
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+from agentic_chatbot_backend import chatbot, get_all_threads,ingest_rag_document
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage,ToolMessage
 import streamlit as st
 import uuid 
+import tempfile
+import os
+
+
 
 # Generate a unique thread ID for each new conversation
 def generate_thread_id():
@@ -197,27 +201,113 @@ for message in st.session_state['message_history']:
 
 
 
-# Create the chat input box
-user_input = st.chat_input('Type here')
+
+# ========================= Fixed chat input with PDF upload =========================
+
+# Keep st.chat_input directly in the main body.
+# This keeps it fixed at the bottom of the screen.
+#
+# accept_file=True adds the attachment button inside the chat input.
+# file_type=["pdf"] allows PDF files only.
 
 
+submission = st.chat_input(
+    "Type here",
+    accept_file=True,
+    file_type=["pdf"]
+)
 
-# Run this block after the user submits a message
+
+# Default user input value
+user_input = None
+
+# Process the submitted text and PDF
+if submission:
+
+    # Get the text entered by the user
+    user_input = submission.text
+
+    # Get the uploaded files
+    # This is always a list when accept_file is enabled
+    uploaded_files = submission.files
+
+    # Process the uploaded PDF if one was attached
+    if uploaded_files:
+
+        uploaded_pdf = uploaded_files[0]
+
+        # Store the temporary file path
+        temporary_file_path = None
+
+        try:
+
+            # Save the uploaded PDF as a temporary local file
+            with tempfile.NamedTemporaryFile(
+                delete=False,
+                suffix=".pdf"
+            ) as temporary_file:
+
+                temporary_file.write(
+                    uploaded_pdf.getvalue()
+                )
+
+                temporary_file_path = temporary_file.name
+
+
+            # Call the existing backend RAG ingestion function
+            with st.spinner(
+                f"Processing {uploaded_pdf.name}..."
+            ):
+
+                ingest_rag_document(
+                    temporary_file_path
+                )
+
+
+            # Display PDF processing confirmation
+            st.toast(
+                f"{uploaded_pdf.name} processed successfully.",
+                icon="✅"
+            )
+
+        except Exception as error:
+
+            # Display PDF processing error
+            st.error(
+                f"PDF processing failed: {error}"
+            )
+
+        finally:
+
+            # Delete the temporary PDF after indexing
+            if (
+                temporary_file_path
+                and os.path.exists(temporary_file_path)
+            ):
+                os.remove(temporary_file_path)
+
+
+# Run this block after the user submits a text message
 if user_input:
 
+    # Save the user's message in Streamlit session state
+    st.session_state["message_history"].append({
+        "role": "user",
+        "content": user_input
+    })
 
-    # first add the message to message_history
-    st.session_state['message_history'].append({'role': 'user', 'content': user_input})
 
     # Display the user's message in the chat interface
-    with st.chat_message('user'):
+    with st.chat_message("user"):
         st.text(user_input)
-    
+
 
     # Pass the current thread ID to LangGraph
     # LangGraph uses this ID to save and retrieve conversation memory
     CONFIG = {
-        "configurable": {"thread_id": st.session_state["thread_id"]},
+        "configurable": {
+            "thread_id": st.session_state["thread_id"]
+        },
         "metadata": {
             "thread_id": st.session_state["thread_id"]
         },
@@ -225,28 +315,79 @@ if user_input:
     }
 
 
-    
-    # Create the assistant chat-message container
-    with st.chat_message('assistant'):
+    # Assistant streaming block
+    with st.chat_message("assistant"):
+
+        # Use a mutable holder so the generator can set/modify it
+        status_holder = {"box": None}
 
 
-        # Stream the assistant response token by token
-        ai_message = st.write_stream(
+        def ai_only_stream():
 
-            # Return only the content of AI message chunks by parsing using the function
-            text_from_content(message_chunk.content)
-            
             for message_chunk, metadata in chatbot.stream(
-                {'messages': [HumanMessage(content=user_input)]},
-                config= CONFIG,
-                stream_mode= 'messages'
+                {
+                    "messages": [
+                        HumanMessage(content=user_input)
+                    ]
+                },
+                config=CONFIG,
+                stream_mode="messages",
+            ):
+
+                # Lazily create & update the SAME status container
+                # when any tool runs
+                if isinstance(message_chunk, ToolMessage):
+
+                    tool_name = getattr(
+                        message_chunk,
+                        "name",
+                        "tool"
+                    )
+
+                    if status_holder["box"] is None:
+
+                        status_holder["box"] = st.status(
+                            f"🔧 Using `{tool_name}` …",
+                            expanded=True
+                        )
+
+                    else:
+
+                        status_holder["box"].update(
+                            label=f"🔧 Using `{tool_name}` …",
+                            state="running",
+                            expanded=True,
+                        )
+
+
+                # Stream ONLY assistant tokens
+                if isinstance(message_chunk, AIMessage):
+                    
+                    # Parse the chunk using your existing helper function
+                    parsed_text = text_from_content(message_chunk.content)
+                    
+                    # Only yield if there is actual text (ignores hidden tool-call blocks)
+                    if parsed_text:
+                        yield parsed_text
+
+
+        ai_message = st.write_stream(
+            ai_only_stream()
+        )
+
+
+        # Finalize only if a tool was actually used
+        if status_holder["box"] is not None:
+
+            status_holder["box"].update(
+                label="✅ Tool finished",
+                state="complete",
+                expanded=False
             )
 
 
-            # Display only AI messages
-            # This prevents tool and user messages from appearing
-            if isinstance(message_chunk, AIMessage)
-        )
-
     # Save the complete assistant response in Streamlit session state
-    st.session_state['message_history'].append({'role': 'assistant', 'content': ai_message})
+    st.session_state["message_history"].append({
+        "role": "assistant",
+        "content": ai_message
+    })
