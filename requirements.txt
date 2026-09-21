@@ -1,5 +1,0 @@
-langgraph==1.2.0
-langchain-google-genai==4.3.7
-python-dotenv==1.2.2
-pydantic==2.10.4
-streamlit

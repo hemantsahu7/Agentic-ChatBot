@@ -17,10 +17,18 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import FAISS
 import os 
 from typing import Any
+from langgraph.types import interrupt, Command
 
 load_dotenv()
 
-llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash")
+# Data files live next to this module, so the app works no matter which
+# directory the server is started from.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CHECKPOINT_DB_PATH = os.path.join(BASE_DIR, "chatbot.db")
+FAISS_DB_PATH = os.path.join(BASE_DIR, "faiss_db")
+
+# GEMINI_MODEL can override the default model without editing code.
+llm = ChatGoogleGenerativeAI(model=os.getenv("GEMINI_MODEL", "gemini-3.6-flash"))
 
 # Embeddings model
 embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
@@ -29,18 +37,20 @@ embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
 
 
 def ingest_rag_document(file_path):
-    DB_PATH = "faiss_db"
+    DB_PATH = FAISS_DB_PATH
     loader = PyPDFLoader(file_path)
     docs = loader.load()
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     chunks = splitter.split_documents(docs)
+    if not chunks:
+        raise ValueError("No extractable text was found in the PDF.")
     vector_store = FAISS.from_documents(chunks, embeddings)
     vector_store.save_local(DB_PATH)
-    
+
 
 
 def get_retriever():
-    DB_PATH = "faiss_db"
+    DB_PATH = FAISS_DB_PATH
     vector_store = FAISS.load_local(
             folder_path=DB_PATH,
             embeddings=embeddings,
@@ -141,9 +151,47 @@ def get_stock_price(symbol: str) -> dict:
     Fetch latest stock price for a given symbol (e.g. 'AAPL', 'TSLA') 
     using Alpha Vantage with API key in the URL.
     """
-    url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey=9MZO2JUBR7IFNTOI"
+    api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
+
+    if not api_key:
+        return {
+            "error": "Alpha Vantage API key is missing. "
+                     "Set the ALPHA_VANTAGE_API_KEY environment variable."
+        }
+
+    url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey={api_key}"
     r = requests.get(url)
     return r.json()
+
+
+
+@tool
+def purchase_stock(symbol: str, quantity: int) -> dict:
+    """
+    Simulate purchasing a given quantity of a stock symbol.
+
+    HUMAN-IN-THE-LOOP:
+    Before confirming the purchase, this tool will interrupt
+    and wait for a human decision ("yes" / anything else).
+    """
+    # This pauses the graph and returns control to the caller
+    decision = interrupt(f"Approve buying {quantity} shares of {symbol}? (yes/no)")
+
+    if isinstance(decision, str) and decision.lower() == "yes":
+        return {
+            "status": "success",
+            "message": f"Purchase order placed for {quantity} shares of {symbol}.",
+            "symbol": symbol,
+            "quantity": quantity,
+        }
+    
+    else:
+        return {
+            "status": "cancelled",
+            "message": f"Purchase of {quantity} shares of {symbol} was declined by human.",
+            "symbol": symbol,
+            "quantity": quantity,
+        }
 
 
 
@@ -270,7 +318,7 @@ def get_current_weather(location: str) -> str:
 
 
 # Make tool list
-tools = [search_tool,calculator, get_stock_price,get_current_weather, rag_tool]
+tools = [search_tool,calculator, get_stock_price, purchase_stock, get_current_weather, rag_tool]
 
 # Make the LLM tool-aware
 llm_with_tools = llm.bind_tools(tools)
@@ -337,7 +385,7 @@ tool_node = ToolNode(tools)
 
 
 
-conn = sqlite3.connect(database="chatbot.db", check_same_thread=False)
+conn = sqlite3.connect(database=CHECKPOINT_DB_PATH, check_same_thread=False)
 checkpoint = SqliteSaver(conn)
 
 graph = StateGraph(ChatState)
