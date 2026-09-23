@@ -25,9 +25,12 @@ a push to `main` once both pass — SSHes into the EC2 box and re-deploys.
 ssh -i your-key.pem ubuntu@<EC2_PUBLIC_IP>
 sudo apt update && sudo apt install -y git
 curl -fsSL https://get.docker.com -o get-docker.sh && sudo sh get-docker.sh
-sudo usermod -aG docker $USER
-newgrp docker
 ```
+
+All `docker`/`docker compose` commands below are run with `sudo` — adding
+`ubuntu` to the `docker` group only takes effect on a brand-new login session,
+which is unreliable in a non-interactive SSH command (like the one GitHub
+Actions runs), so `sudo` is simpler and works consistently everywhere.
 
 ### 3. Clone the repo and configure secrets
 
@@ -45,10 +48,10 @@ they're never built into the frontend or committed to git.
 ### 4. First deploy (manual, to confirm it works)
 
 ```bash
-docker compose up -d --build
+sudo docker compose up -d --build
 ```
 
-Visit `http://<EC2_PUBLIC_IP>` — you should see the chat UI. `docker compose logs -f backend` if it doesn't come up.
+Visit `http://<EC2_PUBLIC_IP>` — you should see the chat UI. `sudo docker compose logs -f backend` if it doesn't come up.
 
 ### 5. Point GitHub Actions at the instance
 
@@ -63,6 +66,6 @@ Repo → Settings → Secrets and variables → Actions → New repository secre
 ## After setup
 
 Every push to `main` that passes CI automatically SSHes in, pulls the new
-code, and runs `docker compose up -d --build`. No manual steps after that.
+code, and runs `sudo docker compose up -d --build`. No manual steps after that.
 
 To redeploy by hand from your machine: `ssh -i your-key.pem ubuntu@<EC2_PUBLIC_IP>` then repeat step 4.
