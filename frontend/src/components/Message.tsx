@@ -1,7 +1,8 @@
-import Markdown from "./Markdown.jsx";
-import ToolStatus from "./ToolStatus.jsx";
+import Markdown from "./Markdown.tsx";
+import ToolStatus from "./ToolStatus.tsx";
+import type { ChatMessage } from "../types";
 
-export default function Message({ message }) {
+export default function Message({ message }: { message: ChatMessage }) {
   if (message.role === "user") {
     return (
       <div className="row row-user">

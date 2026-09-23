@@ -1,6 +1,8 @@
+import type { ToolCall } from "../types";
+
 // One line per tool call, mirroring the old Streamlit status box:
 //   🔧 Using `tool` …   →   ✅ `tool` finished
-export default function ToolStatus({ tools }) {
+export default function ToolStatus({ tools }: { tools: ToolCall[] }) {
   if (!tools || tools.length === 0) return null;
 
   return (

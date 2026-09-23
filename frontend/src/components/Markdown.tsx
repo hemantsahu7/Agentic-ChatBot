@@ -1,12 +1,14 @@
-import { useState } from "react";
-import ReactMarkdown from "react-markdown";
+import { useState, type ReactElement, type ReactNode } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-function CodeBlock({ children }) {
+type CodeElement = ReactElement<{ className?: string; children?: ReactNode }>;
+
+function CodeBlock({ children }: { children?: ReactNode }) {
   const [copied, setCopied] = useState(false);
 
   // react-markdown renders a fenced block as <pre><code className="language-x">…</code></pre>
-  const codeElement = Array.isArray(children) ? children[0] : children;
+  const codeElement = (Array.isArray(children) ? children[0] : children) as CodeElement | undefined;
   const language = /language-([\w-]+)/.exec(codeElement?.props?.className || "")?.[1];
   const text = String(codeElement?.props?.children ?? "").replace(/\n$/, "");
 
@@ -35,13 +37,13 @@ function CodeBlock({ children }) {
   );
 }
 
-const components = {
-  pre: CodeBlock,
+const components: Components = {
+  pre: (props) => <CodeBlock {...props} />,
   a: ({ node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />,
 };
 
 // Raw HTML in the model's output is not rendered (react-markdown's default), so this is safe.
-export default function Markdown({ children }) {
+export default function Markdown({ children }: { children: string }) {
   return (
     <div className="markdown">
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>

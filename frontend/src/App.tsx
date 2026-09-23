@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import Sidebar from "./components/Sidebar.jsx";
-import Chat from "./components/Chat.jsx";
+import Sidebar from "./components/Sidebar.tsx";
+import Chat from "./components/Chat.tsx";
 import * as api from "./services/api";
+import { ApiError, type StreamHandlers } from "./services/api";
+import type { ChatMessage, PendingApproval, ServerMessage, ThreadSummary, ToolCall } from "./types";
 
 let idCounter = 0;
 const uid = () => `${Date.now().toString(36)}-${(idCounter++).toString(36)}`;
 
 // Server history -> UI message. A tool call with no result yet is "waiting" (for approval).
-const fromServerMessage = (m) => ({
+const fromServerMessage = (m: ServerMessage): ChatMessage => ({
   id: uid(),
   role: m.role,
   content: m.content,
@@ -18,10 +20,10 @@ const fromServerMessage = (m) => ({
   })),
 });
 
-const newAssistantMessage = () => ({ id: uid(), role: "assistant", content: "", tools: [], streaming: true, error: null });
+const newAssistantMessage = (): ChatMessage => ({ id: uid(), role: "assistant", content: "", tools: [], streaming: true, error: null });
 
 // tool_start is re-sent when a paused run resumes, so match on the tool call id.
-function upsertTool(tools, tool) {
+function upsertTool(tools: ToolCall[], tool: ToolCall): ToolCall[] {
   const index = tools.findIndex((t) => t.id === tool.id);
   if (index === -1) return [...tools, tool];
   const next = tools.slice();
@@ -29,19 +31,23 @@ function upsertTool(tools, tool) {
   return next;
 }
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export default function App() {
-  const [threads, setThreads] = useState([]);
-  const [activeId, setActiveId] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [pending, setPending] = useState(null); // paused for human approval: { message }
+  const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [pending, setPending] = useState<PendingApproval | null>(null); // paused for human approval
   const [streaming, setStreaming] = useState(false);
   const [loadingThread, setLoadingThread] = useState(false);
-  const [connectionError, setConnectionError] = useState(null); // backend unreachable at startup
-  const [notice, setNotice] = useState(null); // dismissible error banner
+  const [connectionError, setConnectionError] = useState<string | null>(null); // backend unreachable at startup
+  const [notice, setNotice] = useState<string | null>(null); // dismissible error banner
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const activeIdRef = useRef(null);
+  const activeIdRef = useRef<string | null>(null);
 
-  const activate = useCallback((threadId) => {
+  const activate = useCallback((threadId: string) => {
     activeIdRef.current = threadId;
     setActiveId(threadId);
     setMessages([]);
@@ -53,7 +59,7 @@ export default function App() {
     try {
       setThreads(await api.listThreads());
     } catch (err) {
-      setNotice(err.message);
+      setNotice(errorMessage(err));
     }
   }, []);
 
@@ -65,7 +71,7 @@ export default function App() {
       activate(threadId);
       setConnectionError(null);
     } catch (err) {
-      setConnectionError(err.message);
+      setConnectionError(errorMessage(err));
     }
   }, [activate]);
 
@@ -79,7 +85,7 @@ export default function App() {
       ? [{ thread_id: activeId, title: "New chat", draft: true }, ...threads]
       : threads;
 
-  const loadThread = useCallback(async (threadId) => {
+  const loadThread = useCallback(async (threadId: string) => {
     setLoadingThread(true);
     try {
       const detail = await api.getThread(threadId);
@@ -87,13 +93,13 @@ export default function App() {
       setMessages(detail.messages.map(fromServerMessage));
       setPending(detail.pending_interrupt);
     } catch (err) {
-      if (activeIdRef.current === threadId) setNotice(err.message);
+      if (activeIdRef.current === threadId) setNotice(errorMessage(err));
     } finally {
       if (activeIdRef.current === threadId) setLoadingThread(false);
     }
   }, []);
 
-  async function selectThread(threadId) {
+  async function selectThread(threadId: string) {
     setSidebarOpen(false);
     if (threadId === activeId || streaming) return;
     const saved = threads.some((t) => t.thread_id === threadId);
@@ -108,11 +114,11 @@ export default function App() {
     try {
       activate(await api.createThread());
     } catch (err) {
-      setNotice(err.message);
+      setNotice(errorMessage(err));
     }
   }
 
-  const patchLastAssistant = (update) =>
+  const patchLastAssistant = (update: (m: ChatMessage) => ChatMessage) =>
     setMessages((prev) => {
       const last = prev[prev.length - 1];
       if (!last || last.role !== "assistant") return prev;
@@ -121,9 +127,9 @@ export default function App() {
 
   // Runs one streamed request (a new message or an approval decision) and
   // applies its events to the last assistant message.
-  async function runStream(open, threadId) {
+  async function runStream(open: (handlers: StreamHandlers) => Promise<void>, threadId: string) {
     setStreaming(true);
-    const handlers = {
+    const handlers: StreamHandlers = {
       token: ({ text }) => patchLastAssistant((m) => ({ ...m, content: m.content + text })),
       tool_start: ({ id, name }) =>
         patchLastAssistant((m) => ({ ...m, tools: upsertTool(m.tools, { id, name, status: "running" }) })),
@@ -147,10 +153,11 @@ export default function App() {
       await open(handlers);
     } catch (err) {
       failed = true;
-      unreachable = err.network === true;
-      patchLastAssistant((m) => ({ ...m, error: err.message }));
+      const apiErr = err instanceof ApiError ? err : null;
+      unreachable = apiErr?.network === true;
+      patchLastAssistant((m) => ({ ...m, error: apiErr?.message ?? errorMessage(err) }));
       // 409 = our view of the thread is out of sync (e.g. a pending approval); reload it.
-      if (err.status === 409) loadThread(threadId);
+      if (apiErr?.status === 409) loadThread(threadId);
     } finally {
       patchLastAssistant((m) => ({
         ...m,
@@ -162,14 +169,14 @@ export default function App() {
     }
   }
 
-  async function send(text) {
+  async function send(text: string) {
     if (!activeId || streaming || pending) return;
     setNotice(null);
     setMessages((prev) => [...prev, { id: uid(), role: "user", content: text, tools: [] }, newAssistantMessage()]);
     await runStream((handlers) => api.streamChat(activeId, text, handlers), activeId);
   }
 
-  async function decide(decision) {
+  async function decide(decision: "yes" | "no") {
     if (!activeId || streaming) return;
     setPending(null);
     setNotice(null);

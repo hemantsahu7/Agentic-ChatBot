@@ -3,10 +3,17 @@ import * as api from "../services/api";
 
 const SUCCESS_VISIBLE_MS = 8000;
 
+type UploadState =
+  | { phase: "idle" }
+  | { phase: "uploading"; name: string; progress: number }
+  | { phase: "processing"; name: string }
+  | { phase: "success"; name: string }
+  | { phase: "error"; name: string; message: string };
+
 // Paperclip button + status line. Phases: idle → uploading → processing → success | error.
 export default function FileUpload() {
-  const [state, setState] = useState({ phase: "idle" });
-  const input = useRef(null);
+  const [state, setState] = useState<UploadState>({ phase: "idle" });
+  const input = useRef<HTMLInputElement>(null);
   const busy = state.phase === "uploading" || state.phase === "processing";
 
   // Success messages fade away on their own; errors stay until dismissed.
@@ -16,7 +23,7 @@ export default function FileUpload() {
     return () => clearTimeout(timer);
   }, [state]);
 
-  async function handleFile(event) {
+  async function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = ""; // allow picking the same file again
     if (!file) return;
@@ -36,7 +43,8 @@ export default function FileUpload() {
       });
       setState({ phase: "success", name: file.name });
     } catch (err) {
-      setState({ phase: "error", name: file.name, message: err.message });
+      const message = err instanceof Error ? err.message : String(err);
+      setState({ phase: "error", name: file.name, message });
     }
   }
 
@@ -82,7 +90,7 @@ export default function FileUpload() {
       <button
         type="button"
         className="icon-btn attach"
-        onClick={() => input.current.click()}
+        onClick={() => input.current?.click()}
         disabled={busy}
         aria-label="Attach PDF"
         title={busy ? "Processing PDF…" : "Attach a PDF"}

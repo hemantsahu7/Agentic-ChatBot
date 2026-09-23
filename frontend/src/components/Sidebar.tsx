@@ -1,4 +1,16 @@
-export default function Sidebar({ threads, activeId, onSelect, onNew, busy, open, onClose }) {
+import type { ThreadSummary } from "../types";
+
+interface SidebarProps {
+  threads: ThreadSummary[];
+  activeId: string | null;
+  onSelect: (threadId: string) => void;
+  onNew: () => void;
+  busy: boolean;
+  open: boolean;
+  onClose: () => void;
+}
+
+export default function Sidebar({ threads, activeId, onSelect, onNew, busy, open, onClose }: SidebarProps) {
   return (
     <>
       <div className={`backdrop ${open ? "show" : ""}`} onClick={onClose} aria-hidden="true" />

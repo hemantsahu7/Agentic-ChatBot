@@ -34,19 +34,21 @@ frontend/                      backend/       backend/agentic_chatbot_backend.py
 │   ├── chatbot.db                    LangGraph SQLite checkpoints (source of truth for threads)
 │   └── faiss_db/                     FAISS index of the last uploaded PDF (git-ignored)
 └── frontend/
-    ├── index.html · vite.config.js · package.json · .env.example
+    ├── index.html · vite.config.ts · tsconfig.json · package.json · .env.example
     └── src/
-        ├── main.jsx · App.jsx        state: threads, messages, streaming, approval
-        ├── services/api.js           the only code that talks to the backend (fetch + SSE parser + XHR upload)
+        ├── main.tsx · App.tsx        state: threads, messages, streaming, approval
+        ├── types.ts                  shared domain types (ChatMessage, ToolCall, …)
+        ├── vite-env.d.ts             import.meta.env typing
+        ├── services/api.ts           the only code that talks to the backend (fetch + SSE parser + XHR upload)
         ├── components/
-        │   ├── Sidebar.jsx           New Chat + conversation list
-        │   ├── Chat.jsx              header, banners, scrollable messages
-        │   ├── Message.jsx           user / assistant bubble
-        │   ├── Markdown.jsx          Markdown + code blocks (with Copy)
-        │   ├── ToolStatus.jsx        🔧 Using `tool` … → ✅ `tool` finished
-        │   ├── ApprovalCard.jsx      human-in-the-loop Approve / Reject
-        │   ├── ChatInput.jsx         textarea + send
-        │   └── FileUpload.jsx        📎 PDF upload with progress / processing / success / error
+        │   ├── Sidebar.tsx           New Chat + conversation list
+        │   ├── Chat.tsx              header, banners, scrollable messages
+        │   ├── Message.tsx           user / assistant bubble
+        │   ├── Markdown.tsx          Markdown + code blocks (with Copy)
+        │   ├── ToolStatus.tsx        🔧 Using `tool` … → ✅ `tool` finished
+        │   ├── ApprovalCard.tsx      human-in-the-loop Approve / Reject
+        │   ├── ChatInput.tsx         textarea + send
+        │   └── FileUpload.tsx        📎 PDF upload with progress / processing / success / error
         └── styles/index.css
 ```
 
@@ -157,6 +159,15 @@ CORS only allows `FRONTEND_URL`; the browser never sees an API key.
 - `chatbot.db` / `faiss_db` paths are anchored to the file's folder instead of the current working directory.
 - The model name can be overridden with `GEMINI_MODEL` (default unchanged).
 - `ingest_rag_document()` raises a clear error for PDFs with no extractable text (e.g. scans) instead of crashing inside FAISS.
+
+## Deploying
+
+Both services are containerized (`backend/Dockerfile`, `frontend/Dockerfile`)
+and orchestrated with `docker-compose.yml` — nginx serves the built frontend
+and reverse-proxies `/api/*` to the FastAPI backend. `.github/workflows/ci-cd.yml`
+type-checks/builds on every push and PR, and redeploys to an EC2 instance over
+SSH on every push to `main`. See [DEPLOYMENT.md](DEPLOYMENT.md) for the
+one-time AWS setup.
 
 ## Security note
 

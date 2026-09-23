@@ -1,15 +1,22 @@
 import { useEffect, useRef, useState } from "react";
-import FileUpload from "./FileUpload.jsx";
+import FileUpload from "./FileUpload.tsx";
 
 const MAX_HEIGHT_PX = 200;
 
-export default function ChatInput({ onSend, disabled, placeholder }) {
+interface ChatInputProps {
+  onSend: (text: string) => void;
+  disabled: boolean;
+  placeholder: string;
+}
+
+export default function ChatInput({ onSend, disabled, placeholder }: ChatInputProps) {
   const [text, setText] = useState("");
-  const textarea = useRef(null);
+  const textarea = useRef<HTMLTextAreaElement>(null);
 
   // Grow with the content, up to a limit.
   useEffect(() => {
     const el = textarea.current;
+    if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT_PX)}px`;
   }, [text]);
@@ -19,7 +26,7 @@ export default function ChatInput({ onSend, disabled, placeholder }) {
     if (!disabled) textarea.current?.focus();
   }, [disabled]);
 
-  function submit(event) {
+  function submit(event?: React.FormEvent<HTMLFormElement>) {
     event?.preventDefault();
     const message = text.trim();
     if (!message || disabled) return;
@@ -27,9 +34,9 @@ export default function ChatInput({ onSend, disabled, placeholder }) {
     setText("");
   }
 
-  function handleKeyDown(event) {
+  function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-      submit(event);
+      submit();
     }
   }
 

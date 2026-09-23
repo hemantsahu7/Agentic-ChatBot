@@ -1,5 +1,10 @@
 // Shown when the graph pauses in `interrupt()` (the human-in-the-loop stock purchase).
-export default function ApprovalCard({ message, onDecision }) {
+interface ApprovalCardProps {
+  message: string;
+  onDecision: (decision: "yes" | "no") => void;
+}
+
+export default function ApprovalCard({ message, onDecision }: ApprovalCardProps) {
   return (
     <div className="approval" role="alertdialog" aria-label="Approval required">
       <div className="approval-title">✋ Approval required</div>
