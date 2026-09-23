@@ -74,7 +74,7 @@ export default function Chat({
         <button className="icon-btn menu-btn" onClick={onOpenSidebar} aria-label="Open conversations">
           ☰
         </button>
-        <h2>Agentic Chatbot with LangGraph</h2>
+        <h2>Agentic Chatbot with LangGraph 🚀 (deployed via CI/CD)</h2>
       </header>
 
       {connectionError && (
